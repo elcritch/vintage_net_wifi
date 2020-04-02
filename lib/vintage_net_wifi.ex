@@ -21,6 +21,15 @@ defmodule VintageNetWiFi do
     :frequency
   ]
 
+  @root_level_keys [
+    :ap_scan,
+    :networks,
+    :bgscan,
+    :passive_scan,
+    :regulatory_domain,
+    :user_mpm
+  ]
+
   @moduledoc """
   WiFi support for VintageNet
 
@@ -98,7 +107,7 @@ defmodule VintageNetWiFi do
       wifi
       |> normalize_first_network()
       |> normalize_networks()
-      |> Map.take([:ap_scan, :networks, :bgscan, :passive_scan, :regulatory_domain])
+      |> Map.take(@root_level_keys)
 
     %{config | vintage_net_wifi: new_wifi}
   end
@@ -206,6 +215,12 @@ defmodule VintageNetWiFi do
     end
   end
 
+  # ASE
+  defp normalize_network(%{key_mgmt: :sae, sae_password: _} = network_config) do
+    network_config
+    |> Map.take([:sae_password | @common_network_keys])
+  end
+
   # WPA-EAP or IEEE8021X (TODO)
   defp normalize_network(%{key_mgmt: key_mgmt, ssid: ssid} = network_config)
        when key_mgmt in [:wpa_eap, :IEEE8021X] do
@@ -230,7 +245,8 @@ defmodule VintageNetWiFi do
       :private_key,
       :private_key_passwd,
       :private_key2,
-      :private_key2_passwd
+      :private_key2_passwd,
+      :user_mpm
       | @common_network_keys
     ])
   end
@@ -320,7 +336,8 @@ defmodule VintageNetWiFi do
       "ctrl_interface=#{control_interface_dir}",
       "country=#{wifi[:regulatory_domain] || regulatory_domain}",
       into_config_string(wifi, :bgscan),
-      into_config_string(wifi, :ap_scan)
+      into_config_string(wifi, :ap_scan),
+      into_config_string(wifi, :user_mpm)
     ]
 
     iodata = [into_newlines(config), into_wifi_network_config(wifi)]
@@ -331,6 +348,7 @@ defmodule VintageNetWiFi do
   defp key_mgmt_to_string(:wpa_psk), do: "WPA-PSK"
   defp key_mgmt_to_string(:wpa_eap), do: "WPA-EAP"
   defp key_mgmt_to_string(:IEEE8021X), do: "IEEE8021X"
+  defp key_mgmt_to_string(:sae), do: "SAE"
 
   defp mode_to_string(:infrastructure), do: "0"
   defp mode_to_string(:ibss), do: "1"
@@ -391,6 +409,9 @@ defmodule VintageNetWiFi do
       into_config_string(wifi, :ocsp),
       into_config_string(wifi, :openssl_ciphers),
       into_config_string(wifi, :erp),
+
+      # MESH
+      into_config_string(wifi, :sae_password),
 
       # TODO:
       # These parts are files.
@@ -581,6 +602,14 @@ defmodule VintageNetWiFi do
     "passive_scan=#{value}"
   end
 
+  defp wifi_opt_to_config_string(_wifi, :user_mpm, value) do
+    "user_mpm=#{value}"
+  end
+
+  defp wifi_opt_to_config_string(_wifi, :sae_password, value) do
+    "sae_password=\"#{value}\""
+  end
+
   defp network_config(config) do
     ["network={", "\n", into_newlines(config), "}", "\n"]
   end
@@ -592,14 +621,13 @@ defmodule VintageNetWiFi do
     end)
   end
 
-  defp ap_mode?(%{vintage_net_wifi: %{networks: [%{mode: mode}]}})
-       when mode in [:ap, :ibss, :mesh],
-       do: true
+  defp ap_mode?(%{vintage_net_wifi: %{networks: [%{mode: mode}]}}) when mode in [:ap, :ibss],
+    do: true
 
   defp ap_mode?(_config), do: false
 
   defp ctrl_interface_paths(ifname, dir, %{vintage_net_wifi: %{networks: [%{mode: mode}]}})
-       when mode in [:ap, :ibss, :mesh] do
+       when mode in [:ap, :ibss] do
     # Some WiFi drivers expose P2P interfaces and those should be cleaned up too.
     [Path.join(dir, "p2p-dev-#{ifname}"), Path.join(dir, ifname)]
   end
