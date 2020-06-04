@@ -221,7 +221,7 @@ defmodule VintageNetWiFi do
     end
   end
 
-  # ASE
+  # SAE
   defp normalize_network(%{key_mgmt: :sae, sae_password: _} = network_config) do
     network_config
     |> Map.take([:sae_password | @common_network_keys])
@@ -650,20 +650,14 @@ defmodule VintageNetWiFi do
     [ifname]
   end
 
-  # TODO factor the `iw` command into it's own small C program?
   defp up_cmds(ifname, %{vintage_net_wifi: %{root_interface: root_interface}}) do
-    # System.cmd("iw", 
-    #   ["dev", state.ifname, "interface", "add", state.mesh_ifname, "type", "mp"], 
-    #   into: IO.stream(:stdio, :line)
-    # )
-    iw = System.find_executable("iw")
+    mesh_mode = Application.app_dir(:vintage_net_wifi, ["priv", "mesh_mode"])
 
     [
-      {:run, iw, ["dev", root_interface, "interface", "add", ifname, "type", "mp"]},
+      {:run, mesh_mode, [root_interface, ifname, "add"]},
       {:fun,
        fn ->
-         Logger.warn("SLEEPING")
-         Process.sleep(2000)
+         Process.sleep(1000)
        end}
     ]
   end
@@ -671,8 +665,15 @@ defmodule VintageNetWiFi do
   defp up_cmds(_, _), do: []
 
   defp down_cmds(ifname, %{vintage_net_wifi: %{root_interface: root_interface}}) do
-    iw = System.find_executable("iw")
-    [{:run, iw, ["dev", root_interface, "interface", "del", ifname]}]
+    mesh_mode = Application.app_dir(:vintage_net_wifi, ["priv", "mesh_mode"])
+
+    [
+      {:run, mesh_mode, [root_interface, ifname, "del"]},
+      {:fun,
+       fn ->
+         Process.sleep(1000)
+       end}
+    ]
   end
 
   defp down_cmds(_, _), do: []
